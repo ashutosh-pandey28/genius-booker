@@ -199,13 +199,14 @@ class RegisterAPI(APIView):
             if not phone:
                 return Response({"error": "Phone number is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Check if a user with this phone number already exists
-            if User.objects.filter(phone=phone).exists():
-                return Response({"error": "Phone number already in use"}, status=status.HTTP_400_BAD_REQUEST)
-
-            # Generate OTP and send it via SMS
+            # Generate OTP
             otp_code = str(randint(100000, 999999))
-            OTP.objects.create(phone=phone, otp=otp_code)
+
+            # Update or create OTP record
+            OTP.objects.update_or_create(
+                phone=phone,
+                defaults={'otp': otp_code}
+            )
 
             # Send OTP via SMS using Twilio
             client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
