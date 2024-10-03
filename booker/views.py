@@ -53,6 +53,7 @@ def create_user_and_assign_role(staff_member, store=None):
     email = staff_member.get('email')
     exp = staff_member.get('exp', None)
     specialty = staff_member.get('specialty', None)
+    username = staff_member.get('staff_name')
 
     if not phone or not password:
         raise ValidationError("Phone number and password are required to create a staff member.")
@@ -67,14 +68,14 @@ def create_user_and_assign_role(staff_member, store=None):
             email=email,
             role=role,
             exp=exp,
-            specialty=specialty
+            specialty=specialty,
+            username=username
         )
     else:
         # Update existing user with exp and specialty if provided
-        if exp is not None:
-            user.exp = exp
-        if specialty is not None:
-            user.specialty = specialty
+        user.exp = exp if exp is not None else user.exp
+        user.specialty = specialty if specialty is not None else user.specialty
+        user.username = username if username else user.username  
         user.save()
     
     if store:
@@ -1018,25 +1019,25 @@ class UpdateAppointmentStatusAPI(APIView):
 
     def send_reschedule_sms(self, appointment, previous_start, previous_end):
         confirmation_link = f"{settings.FRONTEND_URL}/#/confirm-reschedule/?{appointment.id}"
-    
+
         # Combine the appointment date with the previous start and end times
         previous_start_datetime = timezone.datetime.combine(appointment.date, previous_start)
         previous_end_datetime = timezone.datetime.combine(appointment.date, previous_end)
-    
+
         # Format the previous and new start/end times for clear presentation
         previous_time_str = (
             f"from {previous_start_datetime.strftime('%Y-%m-%d')} {previous_start_datetime.strftime('%H:%M')} "
             f"to {previous_end_datetime.strftime('%Y-%m-%d')} {previous_end_datetime.strftime('%H:%M')}"
         )
-    
+
         new_start_datetime = timezone.datetime.combine(appointment.date, appointment.start_time)
         new_end_datetime = timezone.datetime.combine(appointment.date, appointment.end_time)
-    
+
         new_time_str = (
             f"from {new_start_datetime.strftime('%Y-%m-%d')} {new_start_datetime.strftime('%H:%M')} "
             f"to {new_end_datetime.strftime('%Y-%m-%d')} {new_end_datetime.strftime('%H:%M')}"
         )
-    
+
         # Compose the SMS message
         message_body = (
             f"Dear {appointment.customer_name}, your appointment with {appointment.therapist.username} "
@@ -1044,7 +1045,7 @@ class UpdateAppointmentStatusAPI(APIView):
             f"and the new appointment time is {new_time_str}. "
             f"Please confirm the new time by clicking here: {confirmation_link}."
         )
-    
+
         self.send_sms(appointment.customer_phone, message_body)
 
 
