@@ -1019,7 +1019,7 @@ class UpdateAppointmentStatusAPI(APIView):
     def send_reschedule_sms(self, appointment, previous_start, previous_end):
         confirmation_link = f"{settings.FRONTEND_URL}/#/confirm-reschedule/?{appointment.id}"
     
-        # Combine the date with the previous start and end times
+        # Combine the appointment date with the previous start and end times
         previous_start_datetime = timezone.datetime.combine(appointment.date, previous_start)
         previous_end_datetime = timezone.datetime.combine(appointment.date, previous_end)
     
@@ -1029,9 +1029,12 @@ class UpdateAppointmentStatusAPI(APIView):
             f"to {previous_end_datetime.strftime('%Y-%m-%d')} {previous_end_datetime.strftime('%H:%M')}"
         )
     
+        new_start_datetime = timezone.datetime.combine(appointment.date, appointment.start_time)
+        new_end_datetime = timezone.datetime.combine(appointment.date, appointment.end_time)
+    
         new_time_str = (
-            f"from {appointment.start_time.strftime('%Y-%m-%d')} {appointment.start_time.strftime('%H:%M')} "
-            f"to {appointment.end_time.strftime('%Y-%m-%d')} {appointment.end_time.strftime('%H:%M')}"
+            f"from {new_start_datetime.strftime('%Y-%m-%d')} {new_start_datetime.strftime('%H:%M')} "
+            f"to {new_end_datetime.strftime('%Y-%m-%d')} {new_end_datetime.strftime('%H:%M')}"
         )
     
         # Compose the SMS message
