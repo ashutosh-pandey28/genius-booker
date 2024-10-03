@@ -200,13 +200,12 @@ class RegisterAPI(APIView):
                 return Response({"error": "Phone number is required"}, status=status.HTTP_400_BAD_REQUEST)
 
             # Generate OTP
-            otp_code = str(randint(100000, 999999))
+            if User.objects.filter(phone=phone).exists():
+                return Response({"error": "Phone number already in use"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Update or create OTP record
-            OTP.objects.update_or_create(
-                phone=phone,
-                defaults={'otp': otp_code}
-            )
+            # Generate OTP and send it via SMS
+            otp_code = str(randint(100000, 999999))
+            OTP.objects.create(phone=phone, otp=otp_code)
 
             # Send OTP via SMS using Twilio
             client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
@@ -244,22 +243,19 @@ class CompleteRegistrationAPI(APIView):
             except OTP.DoesNotExist:
                 return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # OTP is valid, proceed with registration
             password = request.data.get('password')
             password2 = request.data.get('password2')
 
             if password != password2:
                 return Response({"error": "Passwords do not match"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Collect other registration data (e.g., username)
             serializer = RegisterSerializer(data=request.data)
             if serializer.is_valid():
-                user = serializer.save(phone=phone, role='Owner', is_verified=True)
-                user.is_active = True  # User can now log in
-                user.save()
-
-                # Delete OTP after successful registration
-                otp_record.delete()
+                with transaction.atomic():  # Start a transaction
+                    user = serializer.save(phone=phone, role='Owner', is_verified=True)
+                    user.is_active = True
+                    user.save()
+                    otp_record.delete()  # Delete OTP within the transaction
 
                 return Response({"message": "User registered successfully!"}, status=status.HTTP_201_CREATED)
 
@@ -268,6 +264,7 @@ class CompleteRegistrationAPI(APIView):
         except Exception as e:
             logger.error(f"Error during registration: {str(e)}")
             return Response({"error": "An error occurred"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 token_generator = PasswordResetTokenGenerator()
