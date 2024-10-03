@@ -33,3 +33,5 @@ myenv/
 *.sublime-project
 
 .env
+
+__pycache__
