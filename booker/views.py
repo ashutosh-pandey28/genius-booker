@@ -913,9 +913,9 @@ class UpdateAppointmentStatusAPI(APIView):
             except ValueError:
                 return Response({"error": "Invalid datetime format. Use YYYY-MM-DD HH:MM."}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Combine date with new start and end time to avoid 1900-01-01 issue
-            new_start_datetime = timezone.datetime.combine(appointment.date, new_start_datetime.time())
-            new_end_datetime = timezone.datetime.combine(appointment.date, new_end_datetime.time())
+             # Combine date with new start and end time and ensure timezone awareness
+            new_start_datetime = timezone.make_aware(timezone.datetime.combine(appointment.date, new_start_datetime.time()))
+            new_end_datetime = timezone.make_aware(timezone.datetime.combine(appointment.date, new_end_datetime.time()))
 
             # Check if the new time slot overlaps with another confirmed appointment on the same date
             if TherapistSchedule.objects.filter(
@@ -932,8 +932,8 @@ class UpdateAppointmentStatusAPI(APIView):
             previous_end = appointment.end_time
 
             # Update the appointment with new time and status
-            appointment.start_time = new_start_datetime.time()  # Use .time() here
-            appointment.end_time = new_end_datetime.time()      # Use .time() here
+            appointment.start_time = new_start_datetime.time()  
+            appointment.end_time = new_end_datetime.time()      
             appointment.status = 'Rescheduled'
             appointment.save()
 

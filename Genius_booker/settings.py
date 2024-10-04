@@ -196,7 +196,7 @@ TWILIO_PHONE_NUMBER = config('TWILIO_PHONE_NUMBER')
 
 TURNSTILE_SECRET_KEY = config('TURNSTILE_SECRET_KEY')
 
-FRONTEND_URL= "https://genius-booker.vercel.app/#/"
+FRONTEND_URL= "https://genius-booker.vercel.app"
 
 
 
