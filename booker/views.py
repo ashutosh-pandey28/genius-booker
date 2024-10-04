@@ -974,9 +974,11 @@ class UpdateAppointmentStatusAPI(APIView):
             else:
                 message_body = (
                     f"Dear {appointment.customer_name}, your appointment at {appointment.store.name} "
-                    f"with {appointment.therapist.username} has been {status_action.lower()} for {appointment.start_time.strftime('%Y-%m-%d %H:%M')} "
-                    f"to {appointment.end_time.strftime('%Y-%m-%d %H:%M')}."
+                    f"with {appointment.therapist.username} has been confirmed "
+                    f"for {appointment.date.strftime('%Y-%m-%d')} from {appointment.start_time.strftime('%H:%M')} "
+                    f"to {appointment.end_time.strftime('%H:%M')}."
                 )
+
     
             self.send_sms(appointment.customer_phone, message_body)
     
@@ -1125,8 +1127,8 @@ class AppointmentDetailsAPI(APIView):
             "customer_email": appointment.customer_email,
             "store": appointment.store.name,
             "status": appointment.status,
-            "current_start_time": appointment.start_time.strftime('%Y-%m-%d %H:%M'),
-            "current_end_time": appointment.end_time.strftime('%Y-%m-%d %H:%M'),
+            "current_start_time": timezone.datetime.combine(appointment.date, appointment.start_time).strftime('%Y-%m-%d %H:%M'),
+            "current_end_time": timezone.datetime.combine(appointment.date, appointment.end_time).strftime('%Y-%m-%d %H:%M'),
         }
 
         # If the appointment was rescheduled, include previous times
