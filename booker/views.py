@@ -165,7 +165,6 @@ def verify_recaptcha(recaptcha_response):
         return False
 
 
-
 def format_phone_number(phone, country_code="US"):
     try:
         # Clean up the phone number (remove spaces, dashes, etc.)
@@ -226,8 +225,6 @@ class RegisterAPI(APIView):
         except Exception as e:
             logger.error(f"Error during OTP send: {str(e)}")
             return Response({"error": "An error occurred"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
 
 
 class CompleteRegistrationAPI(APIView):
@@ -331,7 +328,6 @@ class PasswordResetConfirmView(APIView):
 
         return Response({"message": "Password reset successfully"}, status=status.HTTP_200_OK)
 
-
 # Login API
 class OwnerLoginView(APIView):
         def post(self, request):
@@ -401,9 +397,6 @@ class ManagerLoginView(APIView):
 
         return Response({"error": "Login with manager credentials"}, status=status.HTTP_403_FORBIDDEN)
 
-
-
-
 class TherapistLoginView(APIView):
     def post(self, request):
         phone = request.data.get('phone')
@@ -448,10 +441,7 @@ class IsOwner(BasePermission):
     def has_permission(self, request, view):
         return request.user and request.user.role == 'Owner'
 
-
 # Owner - Create Store with multiple staff API
-
-
 class CreateStoreWithStaffAPI(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, IsOwner]
@@ -639,10 +629,6 @@ class ManageStaffAPI(APIView):
         }, status=status.HTTP_200_OK)
 
     def update_schedule(self, therapist, store, schedule_data):
-        """
-        Updates the schedule for the given therapist in the specified store.
-        """
-        # Assuming you have a TherapistSchedule model
         for schedule_item in schedule_data:
             TherapistSchedule.objects.update_or_create(
                 therapist=therapist,
@@ -654,8 +640,6 @@ class ManageStaffAPI(APIView):
                     'background_color': schedule_item.get('backgroundColor')
                 }
             )
-
-
 
 # Manage Therapist Schedules and Appointments API
 class ManageTherapistScheduleAPI(APIView):
@@ -673,8 +657,8 @@ class ManageTherapistScheduleAPI(APIView):
             start_datetime = datetime.fromisoformat(schedule_data['start'])
             end_datetime = datetime.fromisoformat(schedule_data['end'])
             schedule_data['date'] = start_datetime.date()
-            schedule_data['start_time'] = start_datetime.time()  # Use time for start_time
-            schedule_data['end_time'] = end_datetime.time()      # Use time for end_time
+            schedule_data['start_time'] = start_datetime.time() 
+            schedule_data['end_time'] = end_datetime.time()      
         except (ValueError, KeyError):
             return Response({"error": "Invalid 'start' or 'end' datetime format. Expected format: 'YYYY-MM-DDTHH:MM:SS'"},
                             status=status.HTTP_400_BAD_REQUEST)
@@ -734,9 +718,6 @@ class ManageTherapistScheduleAPI(APIView):
         }, status=status.HTTP_200_OK)
 
 # Appointment Booking API
-
-
-
 class BookAppointmentAPI(APIView):
     permission_classes = []  # Allow anyone to book an appointment
 
@@ -747,8 +728,8 @@ class BookAppointmentAPI(APIView):
         email = request.data.get('email', None)
         therapist_id = request.data.get('therapist_id')  
         store_id = request.data.get('store_id')
-        start_time = request.data.get('start_time')  # Extract 'start_time'
-        end_time = request.data.get('end_time')      # Extract 'end_time'
+        start_time = request.data.get('start_time')  
+        end_time = request.data.get('end_time')      
 
         print(f"received data : {request.data}")
         print(f"start_time : {start_time}, end_time : {end_time}")
@@ -799,8 +780,8 @@ class BookAppointmentAPI(APIView):
             "customer_phone": phone,
             "customer_email": email,
             "date": date,
-            "start_time": start_time_parsed,  # Pass as TimeField
-            "end_time": end_time_parsed,      # Pass as TimeField
+            "start_time": start_time_parsed,  
+            "end_time": end_time_parsed,      
             "status": "Pending",
             "is_day_off": False,
             "title": f"Appointment with {therapist.username}",
@@ -997,8 +978,7 @@ class UpdateAppointmentStatusAPI(APIView):
         return False
 
     def generate_promo_code(self):
-        # For now, you can use a predefined promo code or generate one
-        # Here's a simple example of generating a random alphanumeric promo code
+        # For now,use a predefined promo code or generate one
         import random
         import string
         return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
@@ -1050,9 +1030,6 @@ class UpdateAppointmentStatusAPI(APIView):
 
         self.send_sms(appointment.customer_phone, message_body)
 
-
-
-
 class ConfirmRescheduledAppointmentAPI(APIView):
     permission_classes = []  # No authentication required for customer confirmation
 
@@ -1082,16 +1059,20 @@ class ConfirmRescheduledAppointmentAPI(APIView):
         appointment.save()
 
         # Notify therapist and store manager about the confirmation or decline
-        # self.notify_therapist_and_manager(appointment)
+        self.notify_therapist_and_manager(appointment)
 
         return Response({"message": f"Appointment {confirmation_status.lower()} successfully"}, status=status.HTTP_200_OK)
 
-    # def notify_therapist_and_manager(self, appointment):
-    #     message_body = f"The customer has {appointment.customer_confirmation_status.lower()} the appointment on {appointment.date}."
-    #     self.send_sms(appointment.therapist.phone, message_body)
+    def notify_therapist_and_manager(self, appointment):
+        message_body = f"The customer has {appointment.customer_confirmation_status.lower()} the appointment on {appointment.date}."
 
-    #     if appointment.store.manager:
-    #         self.send_sms(appointment.store.manager.phone, message_body)
+        # Notify the therapist
+        if appointment.therapist.phone:
+            self.send_sms(appointment.therapist.phone, message_body)
+
+        # Notify the store manager if exists
+        if appointment.store.manager and appointment.store.manager.phone:
+            self.send_sms(appointment.store.manager.phone, message_body)
 
     def send_sms(self, to, message_body):
         account_sid = settings.TWILIO_ACCOUNT_SID
@@ -1192,7 +1173,6 @@ class RoleDetailsAPI(APIView):
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
 
-
 # Update Manager Profile
 class UpdateManagerProfileAPI(APIView):
     permission_classes = [IsAuthenticated]
@@ -1218,8 +1198,6 @@ class UpdateManagerProfileAPI(APIView):
             }, status=status.HTTP_200_OK)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
 
 # Update Therapist Profile
 class UpdateTherapistProfileAPI(APIView):
@@ -1263,7 +1241,6 @@ class UpdateStoreDetailsAPI(APIView):
                 "store_id": store.id
             }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 # Store and Staff Details API
 class StoreStaffDetailsAPI(APIView):
@@ -1372,7 +1349,6 @@ class ManagerScheduleAPI(APIView):
             "schedule": list(schedule)
     
             }, status=status.HTTP_200_OK)
-
 
 class TherapistScheduleAPI(APIView):
     # permission_classes = [IsAuthenticated]

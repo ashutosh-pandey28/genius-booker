@@ -178,7 +178,7 @@ class ManageTherapistScheduleSerializer(serializers.ModelSerializer):
     def validate(self, data):
         start_time = data.get('start_time')
         end_time = data.get('end_time')
-        
+
         # Ensure start and end are present
         if not start_time or not end_time:
             raise serializers.ValidationError("Both start and end time are required.")
@@ -200,7 +200,7 @@ class ManageTherapistScheduleSerializer(serializers.ModelSerializer):
             if therapist not in store.therapists.all():
                 raise serializers.ValidationError("Selected therapist is not assigned to this store.")
 
-        # Check for existing bookings
+        # Check for existing bookings including date
         existing_bookings = TherapistSchedule.objects.filter(
             therapist=therapist,
             store=store,
@@ -208,10 +208,12 @@ class ManageTherapistScheduleSerializer(serializers.ModelSerializer):
             start_time__lt=end_time,
             end_time__gt=start_time
         )
+
         if existing_bookings.exists():
             raise serializers.ValidationError("Therapist is already booked during this time slot.")
 
         return data
+
 
     def create(self, validated_data):
         # Create the TherapistSchedule instance with validated data
@@ -247,34 +249,42 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
     def validate(self, data):
         start_time = data.get('start_time')
         end_time = data.get('end_time')
-
+    
+        # Validate that both start and end times are provided and that the start time is before the end time
         if start_time and end_time:
             if start_time >= end_time:
                 raise serializers.ValidationError("End time must be after start time.")
         else:
             raise serializers.ValidationError("Both start time and end time are required.")
-
+    
+        # Check if it's a day off; if not, customer details must be provided
         is_day_off = data.get('is_day_off', False)
         if not is_day_off:
             if not data.get('customer_name') or not data.get('customer_phone'):
                 raise serializers.ValidationError("Customer name and phone are required for bookings.")
-
+    
         therapist = data.get('therapist', None)
         store = data.get('store', None)
+    
+        # Ensure the selected therapist is assigned to the store
         if therapist and store:
             if therapist not in store.therapists.all():
                 raise serializers.ValidationError("Selected therapist is not assigned to this store.")
-
+    
+        # Check for overlapping bookings on the same date and time
         if therapist and store and start_time and end_time:
             existing_bookings = TherapistSchedule.objects.filter(
-                therapist=therapist, store=store,
+                therapist=therapist,
+                store=store,
                 date=data['date'],
-                start_time__lt=end_time, end_time__gt=start_time
+                start_time__lt=end_time,
+                end_time__gt=start_time
             )
             if existing_bookings.exists():
                 raise serializers.ValidationError("Therapist is already booked during this time slot.")
-
+    
         return data
+
 
     def create(self, validated_data):
         validated_data['color'] = validated_data.get('backgroundColor', '#00FF00')  # Default color
