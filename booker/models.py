@@ -38,8 +38,8 @@ class User(AbstractBaseUser):
     exp = models.IntegerField(null=True, blank=True)  # In years
     specialty = models.CharField(max_length=255, blank=True, null=True)  
     is_verified = models.BooleanField(default=False)
-    description = models.TextField(null=True, blank=True)  # New field for description
-    image = models.ImageField(upload_to='user_images/', null=True, blank=True)  # New field for user profile image
+    description = models.TextField(null=True, blank=True)  
+    image = models.ImageField(upload_to='user_images/', null=True, blank=True)  
     
     USERNAME_FIELD = 'phone'
     REQUIRED_FIELDS = ['username']

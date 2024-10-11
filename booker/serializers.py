@@ -105,11 +105,9 @@ class RegisterSerializer(serializers.ModelSerializer):
             username=validated_data['username'],
             phone=validated_data['phone'],
             password=validated_data['password'],
-            email=validated_data.get('email', None)  # Email is optional
+            email=validated_data.get('email', None)
         )
         return user
-
-
 # Store Serializer
 class StoreSerializer(serializers.ModelSerializer):
     managers = UserSerializer(many=True,required=False)
@@ -144,8 +142,6 @@ class StaffSerializer(serializers.ModelSerializer):
             if exp is None:
                 exp = 0
         
-
-        
         user = User.objects.create_user(
             username=username,  
             phone=phone,
@@ -156,10 +152,10 @@ class StaffSerializer(serializers.ModelSerializer):
             specialty=specialty
         )
         if role == 'Manager' and exp is not None:
-            user.exp = exp  # Assuming exp is a field in the User model for Managers
+            user.exp = exp  
         elif role == 'Therapist':
             user.exp = exp
-            user.specialty = specialty  # Assuming both fields are present in User for Therapists
+            user.specialty = specialty  
 
         user.save()
         return user
@@ -169,7 +165,7 @@ class ManageTherapistScheduleSerializer(serializers.ModelSerializer):
     store = serializers.PrimaryKeyRelatedField(queryset=Store.objects.all(), required=True)
     backgroundColor = serializers.CharField(source='color', required=False)
     start_time = serializers.TimeField(required=True)  # Accept as hh:mm[:ss[.uuuuuu]] format
-    end_time = serializers.TimeField(required=True)    # Accept as hh:mm[:ss[.uuuuuu]] format
+    end_time = serializers.TimeField(required=True)    
 
     class Meta:
         model = TherapistSchedule
@@ -179,7 +175,6 @@ class ManageTherapistScheduleSerializer(serializers.ModelSerializer):
         start_time = data.get('start_time')
         end_time = data.get('end_time')
 
-        # Ensure start and end are present
         if not start_time or not end_time:
             raise serializers.ValidationError("Both start and end time are required.")
 
@@ -249,8 +244,7 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
     def validate(self, data):
         start_time = data.get('start_time')
         end_time = data.get('end_time')
-    
-        # Validate that both start and end times are provided and that the start time is before the end time
+
         if start_time and end_time:
             if start_time >= end_time:
                 raise serializers.ValidationError("End time must be after start time.")
@@ -312,19 +306,16 @@ class TherapistSerializer(serializers.ModelSerializer):
         user.save()
         return user
     
-    
-
-
 class AddStaffToStoreSerializer(serializers.Serializer):
-    store_id = serializers.IntegerField(required=False)  # Optional field for store ID
-    store_name = serializers.CharField(max_length=255, required=False)  # Optional field for store name
+    store_id = serializers.IntegerField(required=False)  
+    store_name = serializers.CharField(max_length=255, required=False)  
     staff_phone = serializers.CharField(max_length=15)
     username = serializers.CharField(max_length=30)
     staff_email = serializers.EmailField(required=False)
     staff_password = serializers.CharField(write_only=True)
-    role = serializers.CharField(max_length=10)  # Accept role as a plain CharField
-    exp = serializers.IntegerField(required=False, min_value=0)  # Optional field for exp
-    specialty = serializers.CharField(max_length=255, required=False, allow_blank=True)  # Optional for therapists
+    role = serializers.CharField(max_length=10)  
+    exp = serializers.IntegerField(required=False, min_value=0)  
+    specialty = serializers.CharField(max_length=255, required=False, allow_blank=True)  
 
     def validate_role(self, value):
         """Ensure the role is valid, and allow case-insensitive input."""
@@ -356,7 +347,7 @@ class AddStaffToStoreSerializer(serializers.Serializer):
         if not (store.owner == user or user in store.managers.all()):
             raise serializers.ValidationError("You are not authorized to add staff to this store.")
 
-        data['store'] = store  # Attach the store object to the data
+        data['store'] = store  
         return data
 
     def create_staff(self, validated_data):
@@ -399,3 +390,6 @@ class AppointmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = TherapistSchedule
         fields = ['id', 'therapist', 'customer_name', 'customer_phone', 'customer_email', 'store', 'status', 'start_time', 'end_time', 'previous_start_time', 'previous_end_time']
+        
+
+      
