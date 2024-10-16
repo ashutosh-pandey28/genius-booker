@@ -342,7 +342,7 @@ class OwnerLoginView(APIView):
                 
                 store_data =  get_store_data(user, stores)
 
-                # response data
+                
                 data = {
                     "access": str(refresh.access_token),
                     "refresh": str(refresh),
