@@ -749,7 +749,7 @@ class BookAppointmentAPI(APIView):
         # Parse start and end datetime
         try:
             start_datetime = timezone.datetime.fromisoformat(start_time)  # expects 'YYYY-MM-DDTHH:MM:SS'
-            end_datetime = timezone.datetime.fromisoformat(end_time)      # expects 'YYYY-MM-DDTHH:MM:SS'
+            end_datetime = timezone.datetime.fromisoformat(end_time)      
         except ValueError:
             return Response({"error": "Invalid start or end datetime format. Ensure you are using the correct format."}, status=status.HTTP_400_BAD_REQUEST)
 
