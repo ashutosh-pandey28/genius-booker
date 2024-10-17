@@ -14,6 +14,9 @@ from rest_framework.authentication import TokenAuthentication
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import BasePermission,AllowAny
 from twilio.rest import Client
+import phonenumbers
+from django.core.cache import cache
+from phonenumbers import NumberParseException
 from twilio.base.exceptions import TwilioRestException
 from phonenumbers import parse, is_valid_number, format_number, PhoneNumberFormat
 from django.conf import settings
@@ -199,18 +202,24 @@ class RegisterAPI(APIView):
             if not phone:
                 return Response({"error": "Phone number is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Generate OTP
-            if User.objects.filter(phone=phone).exists():
-                return Response({"error": "Phone number already in use"}, status=status.HTTP_400_BAD_REQUEST)
+            # Format the phone number to ensure international format
+            try:
+                phone_number = phonenumbers.parse(phone, None)
+                formatted_phone = phonenumbers.format_number(phone_number, phonenumbers.PhoneNumberFormat.E164)
+            except NumberParseException:
+                return Response({"error": "Invalid phone number format"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Generate OTP and send it via SMS
+            # Check if an OTP has already been sent and is still valid
+            if cache.get(f"otp_{formatted_phone}"):
+                return Response({"error": "OTP has already been sent. Please wait before retrying."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Generate OTP and store it temporarily in the cache
             otp_code = str(randint(100000, 999999))
-            OTP.objects.create(phone=phone, otp=otp_code)
+            cache.set(f"otp_{formatted_phone}", otp_code, timeout=300)  # Set OTP with a 5-minute expiration
 
             # Send OTP via SMS using Twilio
             client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
             try:
-                formatted_phone = format_phone_number(phone, 'IN')
                 client.messages.create(
                     body=f"Your OTP for account verification is: {otp_code}",
                     from_=settings.TWILIO_PHONE_NUMBER,
@@ -233,14 +242,19 @@ class CompleteRegistrationAPI(APIView):
             otp = request.data.get('otp')
             phone = request.data.get('phone')
 
-            # Validate OTP
+            # Format the phone number to ensure international format
             try:
-                otp_record = OTP.objects.get(phone=phone, otp=otp)
-                if otp_record.is_expired():
-                    return Response({"error": "OTP has expired"}, status=status.HTTP_400_BAD_REQUEST)
-            except OTP.DoesNotExist:
-                return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
+                phone_number = phonenumbers.parse(phone, None)
+                formatted_phone = phonenumbers.format_number(phone_number, phonenumbers.PhoneNumberFormat.E164)
+            except NumberParseException:
+                return Response({"error": "Invalid phone number format"}, status=status.HTTP_400_BAD_REQUEST)
 
+            # Validate OTP from the cache
+            cached_otp = cache.get(f"otp_{formatted_phone}")
+            if cached_otp != otp:
+                return Response({"error": "Invalid or expired OTP"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # OTP is valid, proceed with registration
             password = request.data.get('password')
             password2 = request.data.get('password2')
 
@@ -250,10 +264,12 @@ class CompleteRegistrationAPI(APIView):
             serializer = RegisterSerializer(data=request.data)
             if serializer.is_valid():
                 with transaction.atomic():  # Start a transaction
-                    user = serializer.save(phone=phone, role='Owner', is_verified=True)
+                    user = serializer.save(phone=formatted_phone, role='Owner', is_verified=True)
                     user.is_active = True
                     user.save()
-                    otp_record.delete()  # Delete OTP within the transaction
+
+                    # Delete OTP from cache after successful registration
+                    cache.delete(f"otp_{formatted_phone}")
 
                 return Response({"message": "User registered successfully!"}, status=status.HTTP_201_CREATED)
 
@@ -262,8 +278,6 @@ class CompleteRegistrationAPI(APIView):
         except Exception as e:
             logger.error(f"Error during registration: {str(e)}")
             return Response({"error": "An error occurred"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
 
 token_generator = PasswordResetTokenGenerator()
 
