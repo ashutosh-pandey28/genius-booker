@@ -1,8 +1,15 @@
+from datetime import datetime, timezone
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 from django.core.exceptions import ValidationError
 import random
 import time
+import stripe
+from django.conf import settings
+from django.contrib.auth import get_user_model
+
+stripe.api_key = settings.STRIPE_SECRET_KEY
+
 
 # Custom user manager
 class UserManager(BaseUserManager):
@@ -18,6 +25,16 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
         return self.create_user(phone, password, **extra_fields)
+
+
+
+class Plan(models.Model):
+    name = models.CharField(max_length=50)
+    stripe_plan_id = models.CharField(max_length=50, unique=True)
+    price = models.DecimalField(max_digits=7, decimal_places=2)
+    
+    def __str__(self):
+        return self.name
 
 # User model
 class User(AbstractBaseUser):
@@ -40,6 +57,15 @@ class User(AbstractBaseUser):
     is_verified = models.BooleanField(default=False)
     description = models.TextField(null=True, blank=True)  
     image = models.ImageField(upload_to='user_images/', null=True, blank=True)  
+    
+     # Stripe related fields
+    stripe_customer_id = models.CharField(max_length=255, blank=True, null=True)
+    current_plan = models.ForeignKey(Plan, on_delete=models.SET_NULL, null=True, blank=True)
+
+    # Subscription status and timestamps
+    is_subscription_active = models.BooleanField(default=False)
+    subscription_start_date = models.DateTimeField(null=True, blank=True)
+    subscription_end_date = models.DateTimeField(null=True, blank=True)
     
     USERNAME_FIELD = 'phone'
     REQUIRED_FIELDS = ['username']
@@ -66,8 +92,69 @@ class User(AbstractBaseUser):
             }
             store_details.append(store_info)
         return store_details
+    
+    def activate_subscription(self, plan):
+        """Activate a user's subscription with a given plan."""
+        self.current_plan = plan
+        self.is_subscription_active = True
+        self.subscription_start_date = timezone.now()
+        # Set subscription_end_date based on plan duration or handle via webhook
+        self.save()
 
-# Store model
+    def deactivate_subscription(self):
+        """Deactivate a user's subscription."""
+        self.is_subscription_active = False
+        self.subscription_end_date = timezone.now()
+        self.save()
+
+
+
+
+class Subscription(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='subscriptions')
+    stripe_subscription_id = models.CharField(max_length=50, unique=True)
+    plan = models.ForeignKey(Plan, on_delete=models.SET_NULL, null=True)
+    status = models.CharField(max_length=50)
+    current_period_end = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.user.username} - {self.plan.name}'
+
+    def cancel(self):
+        
+        stripe_subscription = stripe.Subscription.retrieve(self.stripe_subscription_id)
+        stripe_subscription.cancel_at_period_end = True
+        self.status = "canceled"
+        self.save()
+    
+    
+class PaymentIntent(models.Model):
+    payment_intent_id = models.CharField(max_length=255, unique=True)
+    user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE)
+    amount = models.IntegerField()
+    currency = models.CharField(max_length=10)
+    status = models.CharField(max_length=50)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.payment_intent_id
+
+  
+class StripeEvents(models.Model):
+    event_id = models.CharField(max_length=255, unique=True)
+    event_type = models.CharField(max_length=50)
+    event_data = models.JSONField()
+    subscription = models.ForeignKey(Subscription, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'Event: {self.event_type} - {self.event_id}'
+
+    
+    # Store model
 class Store(models.Model):
     name = models.CharField(max_length=255)
     address = models.CharField(max_length=255)
@@ -157,6 +244,9 @@ class TherapistSchedule(models.Model):
     def __str__(self):
         return f'{self.customer_name} - {self.date} - {self.start_time} to {self.end_time} - {self.status}'
 
+    def get_duration(self):
+        return (datetime.combine(self.date, self.end_time) - datetime.combine(self.date, self.start_time)).total_seconds() / 60  # Duration in minutes
+
 
 # Manager schedule model
 class ManagerSchedule(models.Model):
@@ -183,4 +273,7 @@ class OTP(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def is_expired(self):
-        return (time.time() - self.created_at.timestamp()) > 300  # OTP valid for 5 minutes
+        return (time.time() - self.created_at.timestamp()) > 300  
+
+
+

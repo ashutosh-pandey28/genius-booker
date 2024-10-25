@@ -187,7 +187,7 @@ AUTHENTICATION_BACKENDS = [
     'booker.backends.PhoneBackend',  
     'django.contrib.auth.backends.ModelBackend',  
 ]
-from decouple import config
+
 
 TWILIO_ACCOUNT_SID = config('TWILIO_ACCOUNT_SID')
 TWILIO_AUTH_TOKEN = config('TWILIO_AUTH_TOKEN')
@@ -203,3 +203,6 @@ FRONTEND_URL= "https://genius-booker.vercel.app"
 SILENCED_SYSTEM_CHECKS = ['django_recaptcha.recaptcha_test_key_error']
 
 
+STRIPE_SECRET_KEY = config('STRIPE_SECRET_KEY')
+STRIPE_PUBLISHABLE_KEY = config('STRIPE_PUBLISHABLE_KEY')
+STRIPE_WEBHOOK_SECRET = config('STRIPE_WEBHOOK_SECRET')

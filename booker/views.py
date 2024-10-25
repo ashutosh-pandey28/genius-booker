@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -8,12 +9,15 @@ from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from .models import ManagerSchedule, User, Store, TherapistSchedule
+from .models import ManagerSchedule, StripeEvents, User, Store, TherapistSchedule
 from rest_framework import generics
 from rest_framework.authentication import TokenAuthentication
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import BasePermission,AllowAny
 from twilio.rest import Client
+from django.views.decorators.csrf import csrf_exempt
+from django.http import HttpResponseRedirect, JsonResponse
+from django.shortcuts import render
 import phonenumbers
 from django.core.cache import cache
 from phonenumbers import NumberParseException
@@ -21,8 +25,9 @@ from twilio.base.exceptions import TwilioRestException
 from phonenumbers import parse, is_valid_number, format_number, PhoneNumberFormat
 from django.conf import settings
 import logging
+import stripe
 from datetime import timedelta
-from .models import OTP 
+from .models import OTP,Plan, Subscription 
 from django.utils import timezone
 import requests
 from random import randint
@@ -39,11 +44,11 @@ from django.utils.http import urlsafe_base64_decode
 from django.utils.http import urlsafe_base64_encode
 from django.utils.encoding import force_bytes
 from .serializers import (
-    RegisterSerializer, StaffSerializer, TherapistSerializer, UserSerializer, StoreSerializer,
-    TherapistScheduleSerializer,AppointmentSerializer,AddStaffToStoreSerializer,StoreDetailSerializer,ManagerSchedule,ManageTherapistScheduleSerializer
+    PaymentIntentSerializer, RegisterSerializer, StaffSerializer, TherapistSerializer, UserSerializer, StoreSerializer,
+    TherapistScheduleSerializer,AppointmentSerializer, PlanSerializer, SubscriptionSerializer,AddStaffToStoreSerializer,StoreDetailSerializer,ManagerSchedule,ManageTherapistScheduleSerializer
 )
 
-
+logger = logging.getLogger(__name__)
 
 twilio_client = Client("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN")
 # Utility to create user and add them to store roles
@@ -219,11 +224,12 @@ class RegisterAPI(APIView):
 
             # Send OTP via SMS using Twilio
             client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+            twilio_whatsapp_number = settings.TWILIO_PHONE_NUMBER
             try:
                 client.messages.create(
                     body=f"Your OTP for account verification is: {otp_code}",
-                    from_=settings.TWILIO_PHONE_NUMBER,
-                    to=formatted_phone
+                    from_=f'whatsapp:{twilio_whatsapp_number}',  # Use WhatsApp number
+                    to=f'whatsapp:{formatted_phone}' 
                 )
             except TwilioRestException as e:
                 logger.error(f"Twilio error: {str(e)}")
@@ -299,11 +305,12 @@ class PasswordResetRequestView(APIView):
 
         # Send the reset URL to the user's phone via SMS using Twilio
         client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+        
         try:
             message = client.messages.create(
                 body=f"Hi {user.username},\nUse the link to reset your password: {reset_url}",
-                from_=settings.TWILIO_PHONE_NUMBER,
-                to=user.phone
+                from_=f'whatsapp:{settings.TWILIO_PHONE_NUMBER}',
+                to=f'whatsapp:{user.phone}'
             )
         except Exception as e:
             return Response({"error": "Failed to send SMS"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -843,9 +850,9 @@ class BookAppointmentAPI(APIView):
         client = Client(account_sid, auth_token)
         try:
             message = client.messages.create(
-                from_=twilio_phone_number,
+                from_=f'whatsapp:{twilio_phone_number}',
                 body=message_body,
-                to=to
+                to=f'whatsapp:{to}'
             )
             print(f"SMS sent: {message.sid}")
         except Exception as e:
@@ -1005,9 +1012,9 @@ class UpdateAppointmentStatusAPI(APIView):
         client = Client(account_sid, auth_token)
         try:
             message = client.messages.create(
-                from_=twilio_phone_number,
+                from_=f'whatsapp:{twilio_phone_number}',
                 body=message_body,
-                to=to
+                to=f'whatsapp:{to}'
             )
             print(f"SMS sent: {message.sid}")
         except Exception as e:
@@ -1096,9 +1103,9 @@ class ConfirmRescheduledAppointmentAPI(APIView):
         client = Client(account_sid, auth_token)
         try:
             message = client.messages.create(
-                from_=twilio_phone_number,
+                from_=f'whatsapp:{twilio_phone_number}',
                 body=message_body,
-                to=to
+                to=f'whatsapp:{to}'
             )
             print(f"SMS sent: {message.sid}")
         except Exception as e:
@@ -1484,3 +1491,226 @@ class StoreListAPI(APIView):
 
         store_data = [{"id": store.id, "name": store.name} for store in stores]
         return Response(store_data, status=status.HTTP_200_OK)
+    
+    
+stripe.api_key = settings.STRIPE_SECRET_KEY
+
+
+
+# Constants for Plan Prices
+PLAN_PRICE_MAP = {
+    'starter': 'si_R4r3GLIO5C9kDg',
+    'pro': 'si_R4r3RsYTWjMY3w',
+    'business': 'si_R4r33UfFkCopUL'
+}
+
+# Helper function to create Stripe customer
+def create_stripe_customer(user):
+    """Creates a Stripe customer if not already created."""
+    if not user.stripe_customer_id:
+        try:
+            customer = stripe.Customer.create(
+                email=user.email,
+                name=user.username,
+                phone=user.phone
+            )
+            user.stripe_customer_id = customer.id
+            user.save()
+            logger.info(f"Stripe customer created for user: {user.email}")
+        except Exception as e:
+            logger.error(f"Error creating Stripe customer: {str(e)}")
+            raise
+
+
+class CreateCheckoutSessionView(APIView):
+    """Create a checkout session for the selected plan."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        plan_name = request.data.get('plan')
+
+        if plan_name not in PLAN_PRICE_MAP:
+            return Response({"error": "Invalid plan"}, status=400)
+
+        price_id = PLAN_PRICE_MAP[plan_name]
+
+        try:
+            # Create Stripe customer if not already created
+            create_stripe_customer(user)
+
+            # Create the checkout session
+            checkout_session = stripe.checkout.Session.create(
+                customer=user.stripe_customer_id,
+                success_url="http://localhost:9000/#/successpayment?session_id={CHECKOUT_SESSION_ID}",
+                cancel_url=f"{settings.FRONTEND_URL}/cancel",
+                payment_method_types=['card'],
+                line_items=[{'price': price_id, 'quantity': 1}],
+                mode='subscription',
+                metadata={'user': user.email}
+            )
+
+            logger.info(f"Checkout session created for user {user.email} with plan {plan_name}")
+            return JsonResponse({
+                'url': checkout_session.url,
+                'stripe_public_key': settings.STRIPE_PUBLISHABLE_KEY,
+            }, status=201)
+
+        except Exception as e:
+            logger.error(f"Error creating checkout session: {str(e)}")
+            return Response({'error': str(e)}, status=400)
+
+class SuccessView(APIView):
+    """Handle the success URL from Stripe checkout."""
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        session_id = request.query_params.get('session_id')
+
+        if not session_id:
+            logger.error("Session ID not provided")
+            return Response({"error": "Session ID not provided"}, status=400)
+
+        try:
+            session = stripe.checkout.Session.retrieve(session_id)
+            subscription_id = session.subscription
+            subscription = stripe.Subscription.retrieve(subscription_id)
+            user_email = session.metadata.get('user')
+
+            user = get_object_or_404(User, email=user_email)
+            latest_invoice = stripe.Invoice.retrieve(subscription.latest_invoice)
+            payment_intent_id = latest_invoice.payment_intent
+
+            if not payment_intent_id:
+                logger.error("Payment Intent ID not found in invoice")
+                return Response({"error": "Payment Intent ID not found"}, status=400)
+
+            Subscription.objects.create(
+                stripe_subscription_id=subscription.id,
+                payment_intent_id=payment_intent_id,
+                user=user,
+                subscription_renewed=datetime.fromtimestamp(subscription.current_period_start).strftime('%Y-%m-%d'),
+                subscription_expired=datetime.fromtimestamp(subscription.current_period_end).strftime('%Y-%m-%d'),
+                status=subscription.status
+            )
+
+            return HttpResponseRedirect("http://localhost:9000/#/successpayment")
+
+        except Exception as e:
+            logger.error(f"Unexpected error: {str(e)}")
+            return HttpResponseRedirect(f"{settings.FRONTEND_URL}/subscription/response?response=error&message={str(e)}")
+
+# Stripe webhook to handle subscription events
+@csrf_exempt
+def stripe_webhook(request):
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    payload = request.body.decode('utf-8')
+    sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, settings.STRIPE_WEBHOOK_SECRET)
+    except (ValueError, stripe.error.SignatureVerificationError):
+        logger.warning("Invalid Stripe webhook signature or payload")
+        return JsonResponse({'error': 'Invalid signature or payload'}, status=400)
+
+    # Handle relevant events
+    event_type = event['type']
+    if event_type.startswith('customer.subscription.'):
+        handle_subscription_events(event)
+    elif event_type.startswith('payment_intent.'):
+        handle_payment_intent_events(event)
+
+    return JsonResponse({'status': 'success'}, status=200)
+
+# Helper functions for handling Stripe subscription events
+def handle_subscription_events(event):
+    subscription = event['data']['object']
+    user_email = subscription['metadata']['user']
+
+    try:
+        user = User.objects.get(email=user_email)
+
+        if event['type'] == 'customer.subscription.created':
+            latest_invoice = stripe.Invoice.retrieve(subscription['latest_invoice'])
+            payment_intent_id = latest_invoice['payment_intent']
+            Subscription.objects.create(
+                stripe_subscription_id=subscription['id'],
+                payment_intent_id=payment_intent_id,
+                user=user,
+                subscription_renewed=datetime.fromtimestamp(subscription['current_period_start']).strftime('%Y-%m-%d'),
+                subscription_expired=datetime.fromtimestamp(subscription['current_period_end']).strftime('%Y-%m-%d'),
+                status=subscription['status']
+            )
+        elif event['type'] == 'customer.subscription.updated':
+            sub = Subscription.objects.get(stripe_subscription_id=subscription['id'])
+            sub.status = subscription['status']
+            sub.subscription_renewed = datetime.fromtimestamp(subscription['current_period_start']).strftime('%Y-%m-%d')
+            sub.subscription_expired = datetime.fromtimestamp(subscription['current_period_end']).strftime('%Y-%m-%d')
+            sub.save()
+        elif event['type'] == 'customer.subscription.deleted':
+            sub = Subscription.objects.get(stripe_subscription_id=subscription['id'])
+            sub.status = subscription['status']
+            sub.save()
+
+        # Log the event in StripeEvents
+        StripeEvents.objects.create(
+            event_id=event['id'],
+            event_type=event['type'],
+            event_data=json.dumps(event['data']),
+            subscription=sub if event['type'] != 'customer.subscription.deleted' else None
+        )
+
+    except User.DoesNotExist:
+        logger.error(f"User with email {user_email} not found")
+    except Exception as e:
+        logger.error(f"Error handling subscription event: {str(e)}")
+
+def handle_payment_intent_events(event):
+    payment_intent = event['data']['object']
+    user_email = payment_intent['metadata']['user']
+
+    try:
+        user = User.objects.get(email=user_email)
+        stripe.PaymentIntent.objects.update_or_create(
+            payment_intent_id=payment_intent['id'],
+            defaults={
+                'user': user,
+                'amount': payment_intent['amount'],
+                'currency': payment_intent['currency'],
+                'status': payment_intent['status'],
+            }
+        )
+
+        # Log the event in StripeEvents
+        StripeEvents.objects.create(
+            event_id=event['id'],
+            event_type=event['type'],
+            event_data=json.dumps(event['data'])
+        )
+
+    except Exception as e:
+        logger.error(f"Error handling payment intent event: {str(e)}")
+
+class AllSubscriptionsView(APIView):
+    """Return all subscriptions and payment intents."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        subscriptions = Subscription.objects.all()
+        payment_intents = stripe.PaymentIntent.objects.all()
+
+        subscription_serializer = SubscriptionSerializer(subscriptions, many=True)
+        payment_intent_serializer = PaymentIntentSerializer(payment_intents, many=True)
+
+        return Response({
+            'subscriptions': subscription_serializer.data,
+            'payment_intents': payment_intent_serializer.data
+        }, status=200)
+
+# Success and cancel views for Stripe checkout
+def success(request):
+    return render(request, 'success.html')
+
+def cancel(request):
+    return render(request, 'cancel.html')

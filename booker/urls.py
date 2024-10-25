@@ -6,8 +6,8 @@ from .views import (
     TherapistLoginView, OwnerLoginView, BookAppointmentAPI, StoreStaffDetailsAPI,
     AddStaffToStoreView, AllSchedulesAPI, StoreScheduleAPI, ManagerScheduleAPI,
     TherapistScheduleAPI, DeleteStoreAPI, PasswordResetRequestView, PasswordResetConfirmView,
-    CompleteRegistrationAPI,AppointmentsByStoreAPI, UpdateAppointmentStatusAPI,AppointmentDetailsAPI, ListAllBookingsAPI,StoreListAPI,ConfirmRescheduledAppointmentAPI
-)
+    CompleteRegistrationAPI,AppointmentsByStoreAPI, UpdateAppointmentStatusAPI,AppointmentDetailsAPI, ListAllBookingsAPI,StoreListAPI,ConfirmRescheduledAppointmentAPI,
+    CreateCheckoutSessionView,AllSubscriptionsView, stripe_webhook, success, cancel)
 
 urlpatterns = [
     # User Registration and Login APIs
@@ -64,4 +64,12 @@ urlpatterns = [
     path('store/<int:store_id>/schedule/', StoreScheduleAPI.as_view(), name='store-schedule'),
     path('managers/<int:manager_id>/schedule/', ManagerScheduleAPI.as_view(), name='manager-schedule'),
     path('therapists/<int:therapist_id>/schedule/', TherapistScheduleAPI.as_view(), name='therapist_schedule'),
+    
+    
+    path('create-checkout-session/', CreateCheckoutSessionView.as_view(), name='create-checkout-session'),
+    path('webhook/', stripe_webhook, name='stripe-webhook'),
+    path('all-subscriptions/',AllSubscriptionsView.as_view(),name='allAllSubscriptions'),
+    path('success/', success, name='success'),
+    path('cancel/', cancel, name='cancel'),
+    
 ]

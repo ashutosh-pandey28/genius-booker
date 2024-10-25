@@ -3,7 +3,7 @@ from .models import User, Store, TherapistSchedule
 from datetime import datetime
 
 # User Serializer
-from .models import User, Store, TherapistSchedule, ManagerSchedule
+from .models import User, Store, TherapistSchedule, ManagerSchedule,Plan, Subscription,PaymentIntent
 
 class UserSerializer(serializers.ModelSerializer):
     experience = serializers.SerializerMethodField()
@@ -393,3 +393,18 @@ class AppointmentSerializer(serializers.ModelSerializer):
         
 
       
+      
+class PlanSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Plan
+        fields = '__all__'
+
+class SubscriptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Subscription
+        fields = '__all__'
+        
+class PaymentIntentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaymentIntent
+        fields = '__all__'
