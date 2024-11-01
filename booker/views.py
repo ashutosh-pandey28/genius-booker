@@ -1438,8 +1438,8 @@ class TherapistScheduleAPI(APIView):
                 "start": f"{slot.date} {slot.start_time}",
                 "end": f"{slot.date} {slot.end_time}",
                 "date": str(slot.date),
-                "title": slot.title,  # e.g., "Working hours" or "Blocked time"
-                "color": slot.color  # Optional color coding for visualization purposes
+                "title": slot.title,  
+                "color": slot.color  
             }
             for slot in own_schedule
         ]
